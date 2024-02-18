@@ -27,6 +27,9 @@ blurhashes = [
     # spam box ctkpaarr
     'UkKBv%k8Oas:t1f9V[ae|;agoJoft7bYovjZ',
     'UkKBv%k8Oas:t1f9V[ae|;afoJofs;bYovjZ',
+    # hashes from https://gist.github.com/strafplanet/cfdd10c3a999ac2d14a73cc5d9eae6a9#file-mastospam_sql_1-md
+    'UkK2FEk8Oas:t1f9V[ae|;agoJofs;bYowjZ',
+    'UkK2FFk8Oas:tKf9V[ae|;agoJoft7bYovjZ',
 ]
 
 rules = [
