@@ -40,6 +40,7 @@ rules = [
     # ctkpaarr.org in content and https://荒らし.com/ as card
     { 'content_contains': '画像が貼れなかったのでメンションだけします', 'min_mentions': min_mentions },
     { 'content_contains': 'ctkpaarr.org', 'min_mentions': min_mentions },
+    { 'content_contains': '荒らし.com', 'min_mentions': min_mentions },
     { 'content_contains': 'xn--68j5e377y.com', 'min_mentions': min_mentions },
     { 'content_contains': '荒らし共栄圏 公式サイト', 'min_mentions': min_mentions },
     { 'content_contains': '荒らし共栄圏', 'min_mentions': min_mentions },
@@ -91,6 +92,7 @@ def card_contains(status: dict, text: str) -> bool:
     """ Checks if a status card contains a string """
     return (
         ('title' in status['card'] and isinstance(status['card']['title'], str) and text in status['card']['title']) or
+        ('url' in status['card'] and isinstance(status['card']['url'], str) and text in status['card']['url']) or
         ('description' in status['card'] and isinstance(status['card']['description'], str) and text in status['card']['description']) or
         ('provider_name' in status['card'] and isinstance(status['card']['provider_name'], str) and text in status['card']['provider_name'])
     )
@@ -272,6 +274,8 @@ def stream(instance, path='/public', params=None):
 def main_streaming():
     """ Start streaming API and wait for new statuses """
     global last_status
+
+    print("Start streaming...")
 
     for event, status in stream(INSTANCE):
         if event == 'update':
