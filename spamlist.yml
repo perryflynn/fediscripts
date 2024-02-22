@@ -1,19 +1,19 @@
 spamlist:
     # discord.gg/ctkpaarr text
-    - { blurhash: "UTQcblVY%gIU8w8_%Mxu%2Rjayt7.8?bMxRj", min_mentions: 2 },
-    - { blurhash: "UTQcbkVY%gIU8w8_%Mxu%2Rjayt7.8?bMxRj", min_mentions: 2 },
+    - { blurhash: "UTQcblVY%gIU8w8_%Mxu%2Rjayt7.8?bMxRj", min_mentions: 2 }
+    - { blurhash: "UTQcbkVY%gIU8w8_%Mxu%2Rjayt7.8?bMxRj", min_mentions: 2 }
     # spam box ctkpaarr
-    - { blurhash: "UkKBv%k8Oas:t1f9V[ae|;agoJoft7bYovjZ", min_mentions: 2 },
-    - { blurhash: "UkKBv%k8Oas:t1f9V[ae|;afoJofs;bYovjZ", min_mentions: 2 },
+    - { blurhash: "UkKBv%k8Oas:t1f9V[ae|;agoJoft7bYovjZ", min_mentions: 2 }
+    - { blurhash: "UkKBv%k8Oas:t1f9V[ae|;afoJofs;bYovjZ", min_mentions: 2 }
     # hashes from https://gist.github.com/strafplanet/cfdd10c3a999ac2d14a73cc5d9eae6a9#file-mastospam_sql_1-md
-    - { blurhash: "UkK2FEk8Oas:t1f9V[ae|;agoJofs;bYowjZ", min_mentions: 2 },
-    - { blurhash: "UkK2FFk8Oas:tKf9V[ae|;agoJoft7bYovjZ", min_mentions: 2 },
+    - { blurhash: "UkK2FEk8Oas:t1f9V[ae|;agoJofs;bYowjZ", min_mentions: 2 }
+    - { blurhash: "UkK2FFk8Oas:tKf9V[ae|;agoJoft7bYovjZ", min_mentions: 2 }
 
     # ctkpaarr.org in content and https://荒らし.com/ as card
-    - { content_contains: "画像が貼れなかったのでメンションだけします", min_mentions: 2 },
-    - { content_contains: "ctkpaarr.org", min_mentions: 2 },
-    - { content_contains: "荒らし.com", min_mentions: 2 },
-    - { content_contains: "xn--68j5e377y.com", min_mentions: 2 },
-    - { content_contains: "荒らし共栄圏 公式サイト", min_mentions: 2 },
-    - { content_contains: "荒らし共栄圏", min_mentions: 2 },
+    - { content_contains: "画像が貼れなかったのでメンションだけします", min_mentions: 2 }
+    - { content_contains: "ctkpaarr.org", min_mentions: 2 }
+    - { content_contains: "荒らし.com", min_mentions: 2 }
+    - { content_contains: "xn--68j5e377y.com", min_mentions: 2 }
+    - { content_contains: "荒らし共栄圏 公式サイト", min_mentions: 2 }
+    - { content_contains: "荒らし共栄圏", min_mentions: 2 }
     - { blurhash: "UPJNO5xY67ox1JRlRkaMnSkB$~X7J8ayjZe:", min_mentions: 2 }
