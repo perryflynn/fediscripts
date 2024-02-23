@@ -8,6 +8,8 @@ import os
 import traceback
 import time
 import json
+import yaml
+import sys
 from datetime import datetime, timezone, timedelta
 from pprint import pprint
 from typing import Tuple, List, Generator
@@ -16,36 +18,47 @@ from typing import Tuple, List, Generator
 INSTANCE = os.environ.get('MASTODON_INSTANCE', 'einbeck.social')
 TOKEN = os.environ.get('MASTODON_TOKEN')
 MIN_ID = os.environ.get('MASTODON_MIN_ID', None)
+TIME_DELTA = os.environ.get('MASTODON_START_SECONDS', str(60 * 60 * 24))
 DRY_RUN = os.environ.get('MASTODON_DRY_RUN', '1') != '0'
 DEBUG_STATUS = os.environ.get('MASTODON_DEBUG_STATUS', None)
+SPAMLIST = os.environ.get('MASTODON_SPAMLIST', 'https://github.com/perryflynn/fediscripts/raw/main/spamlist.yml')
+
+if not TIME_DELTA.isdigit():
+    print(f"MASTODON_START_SECONDS must be a positive amount of seconds, abort.")
+    sys.exit(1)
 
 # start point in public timeline if no min_id is provided
-start_date = datetime.utcnow() - timedelta(1) #datetime(2024, 2, 18, 0, 0, 0, 0, tzinfo=timezone.utc)
+start_date = datetime.utcnow() - timedelta(seconds=int(TIME_DELTA))
 
-# default minimum amount of mentions in a toot
-min_mentions = 2
+# load spam list from url
+spamlistr = requests.get(SPAMLIST, allow_redirects=True)
 
-# spam search terms
-rules = [
-    # discord.gg/ctkpaarr text
-    { 'blurhash': 'UTQcblVY%gIU8w8_%Mxu%2Rjayt7.8?bMxRj', 'min_mentions': min_mentions },
-    { 'blurhash': 'UTQcbkVY%gIU8w8_%Mxu%2Rjayt7.8?bMxRj', 'min_mentions': min_mentions },
-    # spam box ctkpaarr
-    { 'blurhash': 'UkKBv%k8Oas:t1f9V[ae|;agoJoft7bYovjZ', 'min_mentions': min_mentions },
-    { 'blurhash': 'UkKBv%k8Oas:t1f9V[ae|;afoJofs;bYovjZ', 'min_mentions': min_mentions },
-    # hashes from https://gist.github.com/strafplanet/cfdd10c3a999ac2d14a73cc5d9eae6a9#file-mastospam_sql_1-md
-    { 'blurhash': 'UkK2FEk8Oas:t1f9V[ae|;agoJofs;bYowjZ', 'min_mentions': min_mentions },
-    { 'blurhash': 'UkK2FFk8Oas:tKf9V[ae|;agoJoft7bYovjZ', 'min_mentions': min_mentions },
+if spamlistr.status_code != 200:
+    print(f"Requesting the spamlist from URL returned a HTTP Status {spamlistr.status_code}, abort.")
+    sys.exit(1)
 
-    # ctkpaarr.org in content and https://荒らし.com/ as card
-    { 'content_contains': '画像が貼れなかったのでメンションだけします', 'min_mentions': min_mentions },
-    { 'content_contains': 'ctkpaarr.org', 'min_mentions': min_mentions },
-    { 'content_contains': '荒らし.com', 'min_mentions': min_mentions },
-    { 'content_contains': 'xn--68j5e377y.com', 'min_mentions': min_mentions },
-    { 'content_contains': '荒らし共栄圏 公式サイト', 'min_mentions': min_mentions },
-    { 'content_contains': '荒らし共栄圏', 'min_mentions': min_mentions },
-    { 'blurhash': 'UPJNO5xY67ox1JRlRkaMnSkB$~X7J8ayjZe:', 'min_mentions': min_mentions },
-]
+spamlistdict = None
+try:
+    spamlist = spamlistr.content.decode("utf-8")
+    spamlistdict = yaml.safe_load(spamlist)
+except Exception as e:
+    print(f"Unable to parse spamlist yaml")
+    traceback.print_exc()
+    sys.exit(1)
+
+isspamlist = (
+    isinstance(spamlistdict, dict) and 'spamlist' in spamlistdict and
+    isinstance(spamlistdict['spamlist'], list) and len(spamlistdict['spamlist']) > 0 and
+    isinstance(spamlistdict['spamlist'][0], dict)
+)
+
+if not isspamlist:
+    print("The spamlist format is invalid.")
+    sys.exit(0)
+
+rules = spamlistdict['spamlist']
+
+print(f"Loaded {len(rules)} rules")
 
 # calculate start status id
 # https://shkspr.mobi/blog/2022/11/building-an-on-this-day-service-for-mastodon/
@@ -242,33 +255,39 @@ def main():
 
 def stream(instance, path='/public', params=None):
     # https://jrashford.com/2023/08/17/how-to-stream-mastodon-posts-using-python/
-    s = requests.Session()
+
     url = f'https://{instance}/api/v1/streaming{path}'
 
-    headers = {'connection': 'keep-alive',
-               'content-type': 'application/json',
-               'transfer-encoding': 'chunked',
-               'Authorization': f"Bearer {TOKEN}"}
+    headers = {
+        #'connection': 'keep-alive',
+        #'content-type': 'application/json',
+        #'transfer-encoding': 'chunked',
+        'Authorization': f"Bearer {TOKEN}"
+    }
 
-    req = requests.Request("GET", url,
-                           headers=headers,
-                           params=params).prepare()
+    resp = requests.get(url, headers=headers, params=params, stream=True)
 
-    resp = s.send(req, stream=True)
     event_type = None
+    key_event = 'event: '
+    key_data = 'data: '
 
     for line in resp.iter_lines():
         line = line.decode('UTF-8')
 
-        key = 'event: '
-        if key in line:
-            line = line.replace(key, '')
+        if key_event in line:
+            if event_type is not None:
+                raise Exception(f"Event type is already '{event_type}', expected data block")
+
+            line = line.replace(key_event, '')
             event_type = line
 
-        key = 'data: '
-        if key in line:
-            line = line.replace(key, '')
+        if key_data in line:
+            if event_type is None:
+                raise Exception("Got data but there is no event type set")
+
+            line = line.replace(key_data, '')
             yield (event_type, json.loads(line))
+            event_type = None
 
 
 def main_streaming():
