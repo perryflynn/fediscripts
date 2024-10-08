@@ -17,3 +17,7 @@ spamlist:
     - { content_contains: "荒らし共栄圏 公式サイト", min_mentions: 2 }
     - { content_contains: "荒らし共栄圏", min_mentions: 2 }
     - { blurhash: "UPJNO5xY67ox1JRlRkaMnSkB$~X7J8ayjZe:", min_mentions: 2 }
+
+    # 2024-10-08 again bullshit
+    - { content_contains: "krsw-wiki.org", min_mentions: 2 }
+    - { content_contains: "midokuriserver.github.io", min_mentions: 2 }

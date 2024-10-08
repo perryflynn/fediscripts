@@ -14,59 +14,62 @@ from datetime import datetime, timezone, timedelta
 from pprint import pprint
 from typing import Tuple, List, Generator
 
-# parameters
-INSTANCE = os.environ.get('MASTODON_INSTANCE', 'einbeck.social')
-TOKEN = os.environ.get('MASTODON_TOKEN')
-MIN_ID = os.environ.get('MASTODON_MIN_ID', None)
-TIME_DELTA = os.environ.get('MASTODON_START_SECONDS', str(60 * 60 * 24))
-DRY_RUN = os.environ.get('MASTODON_DRY_RUN', '1') != '0'
-DEBUG_STATUS = os.environ.get('MASTODON_DEBUG_STATUS', None)
-SPAMLIST = os.environ.get('MASTODON_SPAMLIST', 'https://github.com/perryflynn/fediscripts/raw/main/spamlist.yml')
 
-if not TIME_DELTA.isdigit():
-    print(f"MASTODON_START_SECONDS must be a positive amount of seconds, abort.")
-    sys.exit(1)
+def get_startid_by_timedelta() -> Tuple[int, datetime]:
+    """ Calculate a start id by date """
 
-# start point in public timeline if no min_id is provided
-start_date = datetime.utcnow() - timedelta(seconds=int(TIME_DELTA))
+    # https://shkspr.mobi/blog/2022/11/building-an-on-this-day-service-for-mastodon/
 
-# load spam list from url
-spamlistr = requests.get(SPAMLIST, allow_redirects=True)
+    date = datetime.utcnow() - timedelta(seconds=int(TIME_DELTA))
+    id = ( int( date.timestamp() ) << 16 ) * 1000
+    return (id, date)
 
-if spamlistr.status_code != 200:
-    print(f"Requesting the spamlist from URL returned a HTTP Status {spamlistr.status_code}, abort.")
-    sys.exit(1)
 
-spamlistdict = None
-try:
-    spamlist = spamlistr.content.decode("utf-8")
-    spamlistdict = yaml.safe_load(spamlist)
-except Exception as e:
-    print(f"Unable to parse spamlist yaml")
-    traceback.print_exc()
-    sys.exit(1)
+def load_spamlist():
+    """ Load list with spam search patterns from URL """
 
-isspamlist = (
-    isinstance(spamlistdict, dict) and 'spamlist' in spamlistdict and
-    isinstance(spamlistdict['spamlist'], list) and len(spamlistdict['spamlist']) > 0 and
-    isinstance(spamlistdict['spamlist'][0], dict)
-)
+    global rules
+    global rules_etag
 
-if not isspamlist:
-    print("The spamlist format is invalid.")
-    sys.exit(0)
+    headers = {}
 
-rules = spamlistdict['spamlist']
+    if rules is None and rules_etag is not None:
+        raise Exception('Unexpected state: etag is defined but there is no rules list')
 
-print(f"Loaded {len(rules)} rules")
+    if rules_etag is not None:
+        headers['If-None-Match'] = rules_etag
 
-# calculate start status id
-# https://shkspr.mobi/blog/2022/11/building-an-on-this-day-service-for-mastodon/
-start_min_id = ( int( start_date.timestamp() ) << 16 ) * 1000
+    spamlistr = requests.get(SPAMLIST, headers=headers)
 
-# some variables used below
-authheader = { 'Authorization': f"Bearer {TOKEN}" }
-last_status = { 'id': str(start_min_id), 'created_at': datetime.fromtimestamp(0).isoformat() }
+    if spamlistr.status_code == 304:
+        print("\nSpamlist is up to date")
+        return rules
+
+    if spamlistr.status_code != 200:
+        raise Exception(f"Requesting the spamlist from URL returned a HTTP Status {spamlistr.status_code}")
+
+    newetag = spamlistr.headers.get('etag', None)
+    if newetag:
+        rules_etag = newetag
+
+    spamlistdict = None
+    try:
+        spamlist = spamlistr.content.decode("utf-8")
+        spamlistdict = yaml.safe_load(spamlist)
+    except Exception as e:
+        raise Exception("Unable to parse spamlist yaml") from e
+
+    isspamlist = (
+        isinstance(spamlistdict, dict) and 'spamlist' in spamlistdict and
+        isinstance(spamlistdict['spamlist'], list) and len(spamlistdict['spamlist']) > 0 and
+        isinstance(spamlistdict['spamlist'][0], dict)
+    )
+
+    if not isspamlist:
+        raise Exception("Spamlist has a invalid format")
+
+    rules = spamlistdict['spamlist']
+    print(f"Loaded {len(rules)} rules")
 
 
 def has_min_mentions(status: dict, min_mentions: int) -> bool:
@@ -179,20 +182,12 @@ def handle_spam(hits: dict):
         print()
 
 
-def main():
+def scan_public_timeline():
     """ Interate the timeline from a start id to the end """
 
     global last_status
     global start_min_id
-
-    if DRY_RUN:
-        print("Dry run is enabled.")
-
-    # start parameters
-    if MIN_ID:
-        start_min_id = MIN_ID
-        print(f"First ID: {MIN_ID}")
-        last_status['id'] = MIN_ID
+    global rules
 
     params = { 'min_id': start_min_id, 'limit': 40 }
 
@@ -234,6 +229,7 @@ def main():
                 hits.append((status, result[1]))
 
             params['min_id'] = status['id']
+            start_min_id = status['id']
             last_status = status
 
         # progress dot
@@ -253,50 +249,50 @@ def main():
     handle_spam(hits)
 
 
-def stream(instance, path='/public', params=None):
+def open_stream(instance, path='/public', params=None):
     # https://jrashford.com/2023/08/17/how-to-stream-mastodon-posts-using-python/
 
     url = f'https://{instance}/api/v1/streaming{path}'
 
     headers = {
-        #'connection': 'keep-alive',
-        #'content-type': 'application/json',
-        #'transfer-encoding': 'chunked',
         'Authorization': f"Bearer {TOKEN}"
     }
 
-    resp = requests.get(url, headers=headers, params=params, stream=True)
+    with requests.get(url, headers=headers, params=params, stream=True) as resp:
+        event_type = None
+        key_event = 'event: '
+        key_data = 'data: '
 
-    event_type = None
-    key_event = 'event: '
-    key_data = 'data: '
+        for line in resp.iter_lines():
+            line = line.decode('UTF-8')
 
-    for line in resp.iter_lines():
-        line = line.decode('UTF-8')
+            if key_event in line:
+                if event_type is not None:
+                    raise Exception(f"Event type is already '{event_type}', expected data block")
 
-        if key_event in line:
-            if event_type is not None:
-                raise Exception(f"Event type is already '{event_type}', expected data block")
+                line = line.replace(key_event, '')
+                event_type = line
 
-            line = line.replace(key_event, '')
-            event_type = line
+            if key_data in line:
+                if event_type is None:
+                    raise Exception("Got data but there is no event type set")
 
-        if key_data in line:
-            if event_type is None:
-                raise Exception("Got data but there is no event type set")
-
-            line = line.replace(key_data, '')
-            yield (event_type, json.loads(line))
-            event_type = None
+                line = line.replace(key_data, '')
+                yield (event_type, json.loads(line))
+                event_type = None
 
 
-def main_streaming():
+def scan_public_stream(max_time: int = 60):
     """ Start streaming API and wait for new statuses """
+
     global last_status
+    global start_min_id
+    global rules
 
     print("Start streaming...")
+    starttime = time.time()
 
-    for event, status in stream(INSTANCE):
+    for event, status in open_stream(INSTANCE):
         if event == 'update':
             # progress dot
             print('.', end='', flush=True)
@@ -310,12 +306,56 @@ def main_streaming():
                 handle_spam([ (status, result[1]) ])
 
             last_status = status
+            start_min_id = status['id']
+
+            if time.time() - starttime >= max_time:
+                break
 
 
 if __name__ == "__main__":
+
+    # parameters
+    INSTANCE = os.environ.get('MASTODON_INSTANCE', 'einbeck.social')
+    TOKEN = os.environ.get('MASTODON_TOKEN')
+    MIN_ID = os.environ.get('MASTODON_MIN_ID', None)
+    TIME_DELTA = os.environ.get('MASTODON_START_SECONDS', str(60 * 60 * 24))
+    DRY_RUN = os.environ.get('MASTODON_DRY_RUN', '1') != '0'
+    DEBUG_STATUS = os.environ.get('MASTODON_DEBUG_STATUS', None)
+    SPAMLIST = os.environ.get('MASTODON_SPAMLIST', 'https://raw.githubusercontent.com/perryflynn/fediscripts/main/spamlist.yml')
+    SPAMLIST_UPDATEINTV = os.environ.get('MASTODON_SPAMLIST_UPDATE_INTERVAL', str(60 * 60 * 2))
+
+    if not TIME_DELTA.isdigit():
+        print(f"MASTODON_START_SECONDS must be a positive amount of seconds, abort.")
+        sys.exit(1)
+
+    if not SPAMLIST_UPDATEINTV.isdigit():
+        print(f"MASTODON_SPAMLIST_UPDATE_INTERVAL must be a positive amount of seconds, abort.")
+        sys.exit(1)
+
+    if DRY_RUN:
+        print("Dry run is enabled.")
+
+    update_interval = int(SPAMLIST_UPDATEINTV)
+    start_date, start_min_id = get_startid_by_timedelta()
+    rules = None
+    rules_etag = None
+    authheader = { 'Authorization': f"Bearer {TOKEN}" }
+    last_status = { 'id': str(start_min_id), 'created_at': datetime.fromtimestamp(0).isoformat() }
+
+    if MIN_ID:
+        start_min_id = MIN_ID
+        last_status['id'] = MIN_ID
+
+    print(f"First ID: {start_min_id}")
+
     try:
-        main()
-        main_streaming()
+        while True:
+            load_spamlist()
+            scan_public_timeline()
+            scan_public_stream(max_time=update_interval)
+
+            time.sleep(5)
+
     except KeyboardInterrupt:
         pass
     except Exception:
